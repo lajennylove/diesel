@@ -88,7 +88,15 @@ impl OutputBinds {
             }
         }
 
-        unsafe { self.with_mysql_binds(|bind_ptr| stmt.bind_result(bind_ptr)) }
+        // libmariadb (3.4.x) sets the length of every bound column to zero when
+        // `mysql_stmt_bind_result` runs again, which happens here after a truncated
+        // fetch. Keep the lengths we just read, so the values are not lost.
+        let lengths: Vec<libc::c_ulong> = self.0.data.iter().map(|d| d.length).collect();
+        let result = unsafe { self.with_mysql_binds(|bind_ptr| stmt.bind_result(bind_ptr)) };
+        for (data, length) in self.0.data.iter_mut().zip(lengths) {
+            data.length = length;
+        }
+        result
     }
 
     pub(super) fn update_buffer_lengths(&mut self) {
